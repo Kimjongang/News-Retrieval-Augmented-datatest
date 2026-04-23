@@ -1,0 +1,87 @@
+import pandas as pd
+import numpy as np
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.metrics import mean_absolute_error, r2_score
+from tqdm import tqdm
+
+# ==========================================
+# 1. 讀取主模型預測結果
+# ==========================================
+
+df_results = pd.read_csv(transfer_file_path)
+val_titles = df_results['標題'].tolist()
+
+
+# ==========================================
+# 2. 載入 RAG 資料庫、text2vec_model
+# ==========================================
+
+text2vec_model = SentenceTransformer("shibing624/text2vec-base-chinese")
+
+
+# ==========================================
+# 3. 批次計算驗證集的 RAG 分數
+# ==========================================
+print("將驗證集標題轉為向量...")
+val_query_embeddings = text2vec_model.encode(val_titles, batch_size=64, convert_to_numpy=True, show_progress_bar=True)
+
+rag_scores = []
+threshold = 0.8
+
+print("計算相似度與 RAG 加權分數...")
+for query_emb in tqdm(val_query_embeddings):
+    sims = cosine_similarity([query_emb], rag_embeddings)[0]
+    
+    top_indices = np.argsort(sims)[-5:][::-1]
+    filtered_indices = [i for i in top_indices if sims[i] >= threshold]
+    
+    # 保底
+    if len(filtered_indices) == 0:
+        filtered_indices = top_indices
+        
+    top_scores = df_rag.iloc[filtered_indices]["normalized_pv"].values
+    top_weights = sims[filtered_indices]
+    
+    # 避免分母為 0 情況
+    weight_sum = top_weights.sum()
+    if weight_sum > 0:
+        pred_score = (top_scores * top_weights).sum() / weight_sum
+    else:
+        pred_score = 0.0
+        
+    rag_scores.append(pred_score)
+
+df_results['RAG分數_rag_score'] = rag_scores
+
+# ==========================================
+# 4. 尋找最佳權重
+# ==========================================
+print("\n=== 權重測試 ===")
+y_true = df_results['真分數_y_true'].values
+model_scores = df_results['模型分數_model_score'].values
+rag_scores = df_results['RAG分數_rag_score'].values
+
+best_alpha = 0
+best_mae = float('inf')
+best_r2 = -float('inf')
+
+for alpha in np.arange(0.0, 1.05, 0.05):
+    final_scores = alpha * model_scores + (1 - alpha) * rag_scores
+    
+    mae = mean_absolute_error(y_true, final_scores)
+    r2 = r2_score(y_true, final_scores)
+    
+    if mae < best_mae:
+        best_mae = mae
+        best_alpha = alpha
+        best_r2 = r2
+        
+    # 觀察變化
+    if int(alpha*100) % 10 == 0:
+        print(f"Alpha={alpha:.2f} (Model {alpha*100:3.0f}%, RAG {(1-alpha)*100:3.0f}%) | MAE: {mae:.4f} | R^2: {r2:.4f}")
+
+print("-" * 50)
+print(f"最佳融合比例：Model 佔 {best_alpha*100:.0f}%，RAG 佔 {(1-best_alpha)*100:.0f}%")
+print(f"融合後最佳 MAE：{best_mae:.4f} 
+print(f"融合後最佳 R^2：{best_r2:.4f} 
