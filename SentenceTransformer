@@ -1,0 +1,87 @@
+from sentence_transformers import SentenceTransformer
+import numpy as np
+
+# 載入模型
+model = SentenceTransformer("shibing624/text2vec-base-chinese")
+
+# 先取1000筆測試
+sample_df = df.sample(1000, random_state=42)
+
+titles = sample_df["標題"].tolist()
+
+# 轉成向量
+embeddings = model.encode(titles, batch_size=32, show_progress_bar=True)
+
+# 檢查
+print("embedding shape:", embeddings.shape)
+
+
+
+from sentence_transformers import SentenceTransformer
+import numpy as np
+import pandas as pd
+
+# 載入模型
+model = SentenceTransformer("shibing624/text2vec-base-chinese")
+
+# 全部標題
+titles = df["標題"].tolist()
+
+# 建立 embedding
+embeddings = model.encode(
+    titles,
+    batch_size=32,
+    show_progress_bar=True,
+    convert_to_numpy=True
+)
+
+# 檢查
+print("資料筆數：", len(df))
+print("embedding shape:", embeddings.shape)
+
+
+import pandas as pd
+import numpy as np
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
+
+# 載入模型
+model = SentenceTransformer("shibing624/text2vec-base-chinese")
+
+# 測試新標題
+query_title = "XXXXX"
+
+# 轉成向量
+query_embedding = model.encode([query_title], convert_to_numpy=True)
+
+# 算相似度
+similarities = cosine_similarity(query_embedding, embeddings)[0]
+
+# 取 Top 5
+top_k = 5
+top_indices = np.argsort(similarities)[-top_k:][::-1]
+
+# 顯示結果
+print("查詢標題：", query_title)
+print("\nTop 5 相似新聞：")
+
+for rank, idx in enumerate(top_indices, 1):
+    print(f"\n第{rank}名")
+    print("相似度：", similarities[idx])
+    print("標題：", df.iloc[idx]["標題"])
+    print("審核日期：", df.iloc[idx]["審核日期"])
+    print("總PV：", df.iloc[idx]["總PV"])
+
+
+
+# 取出 Top K 相似新聞的 normalized_pv 與相似度
+top_scores = df.iloc[top_indices]["normalized_pv"].values
+top_weights = similarities[top_indices]
+
+# 用相似度做加權平均
+pred_score = (top_scores * top_weights).sum() / top_weights.sum()
+
+# 結果
+
+print("查詢標題：", query_title)
+print("最終預測分數：", f"{pred_score:.2f}")
